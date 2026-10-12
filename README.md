@@ -1,53 +1,5 @@
 # CS336 Spring 2025 Assignment 1: Basics
 
-For a full description of the assignment, see the assignment handout at
-[cs336_assignment1_basics.pdf](./cs336_assignment1_basics.pdf)
-
-If you see any issues with the assignment handout or code, please feel free to
-raise a GitHub issue or open a pull request with a fix.
-
-## Setup
-
-### Environment
-We manage our environments with `uv` to ensure reproducibility, portability, and ease of use.
-Install `uv` [here](https://github.com/astral-sh/uv#installation) (recommended), or run `pip install uv`/`brew install uv`.
-We recommend reading a bit about managing projects in `uv` [here](https://docs.astral.sh/uv/guides/projects/#managing-dependencies) (you will not regret it!).
-
-You can now run any code in the repo using
-```sh
-uv run <python_file_path>
-```
-and the environment will be automatically solved and activated when necessary.
-
-### Run unit tests
-
-
-```sh
-uv run pytest
-```
-
-Initially, all tests should fail with `NotImplementedError`s.
-To connect your implementation to the tests, complete the
-functions in [./tests/adapters.py](./tests/adapters.py).
-
-### Download data
-Download the TinyStories data and a subsample of OpenWebText
-
-``` sh
-mkdir -p data
-cd data
-
-wget https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-train.txt
-wget https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-valid.txt
-
-wget https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main/owt_train.txt.gz
-gunzip owt_train.txt.gz
-wget https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main/owt_valid.txt.gz
-gunzip owt_valid.txt.gz
-
-cd ..
-```
-
 ## BPE 训练实现记录
 
 本仓库的 `cs336_basics/train_bpe.py` 实现了 byte-level BPE 训练流程：先统计 GPT-2 风格预分词单元的频次，再从 UTF-8 字节序列开始，反复合并语料中频次最高的相邻字节对。
@@ -68,8 +20,3 @@ cd ..
 
 - `vocab`: `dict[int, bytes]`，token ID 到字节串的映射。初始词表由特殊 token 和全部 256 种单字节 token 组成。
 - `merges`: `list[tuple[bytes, bytes]]`，按训练顺序记录每一步被合并的左右字节 token。
-
-### 当前实现备注
-
-- 分块边界使用 `special_tokens[0]` 对齐，因此 `special_tokens` 需要至少包含一个非空 token；当前空列表会在访问第一个元素时触发 `IndexError`。
-- `update_pair_stats()` 删除 `pair_to_word` 中空计数器的判断目前写成 `if not pair_to_word`。按意图应检查当前 pair 对应的计数器（`words_with_pair`）；现状可能留下空的反向索引项。它不应被误解为已清理这些空项。
