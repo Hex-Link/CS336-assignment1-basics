@@ -169,7 +169,7 @@ def initialize_bpe_state(
     word_tokens: dict[str, list[bytes]] = {}
     pair_counts: Counter[BytePair] = Counter()
     """反向索引是一个字节对出现在哪些词里"""
-    pair_to_word: dict[BytePair, Counter[str]] = {}
+    pair2word: dict[BytePair, Counter[str]] = {}
     for word, word_frequency in word_counts.items():
         word_bytes = word.encode("utf-8")
 
@@ -185,9 +185,9 @@ def initialize_bpe_state(
             pair_counts[pair] += word_frequency
 
             # 反向索引记录 pair 在这个预分词内部出现几次。
-            pair_to_word.setdefault(pair, Counter())[word] += 1
+            pair2word.setdefault(pair, Counter())[word] += 1
 
-    return word_tokens, pair_counts, pair_to_word
+    return word_tokens, pair_counts, pair2word
 
 
 def find_best_pair(
