@@ -4,6 +4,7 @@ from collections import Counter
 import regex as re
 import multiprocessing
 from functools import partial
+import pickle
 
 GPT2_PRETOKENIZATION_PATTERN = (
     # 撇号后匹配常见英文缩写后缀；(?:...) 是不捕获分组，| 表示“或”，[sdmt] 匹配其中一个字符。
@@ -228,7 +229,7 @@ def update_pair_stats(
     new_tokens: list[bytes],
     word_frequency: int,
     pair_counts: Counter[BytePair],
-    pair_to_word: dict[BytePair, Counter[str]],
+    pair2word: dict[BytePair, Counter[str]],
 ) -> None:
     """移除该预分词合并前的 pair 统计，再加入合并后的统计。"""
     for left, right in zip(old_tokens, old_tokens[1:]):
@@ -237,17 +238,18 @@ def update_pair_stats(
         if pair_counts[pair] <= 0:
             del pair_counts[pair]
 
-        words_with_pair = pair_to_word[pair]
+        words_with_pair = pair2word[pair]
         words_with_pair[word] -= 1
         if words_with_pair[word] <= 0:
             del words_with_pair[word]
-        if not pair_to_word:
-            del pair_to_word[pair]
+
+        if not words_with_pair:
+            del pair2word[pair]
 
     for left, right in zip(new_tokens, new_tokens[1:]):
         pair = (left, right)
         pair_counts[pair] += word_frequency
-        pair_to_word.setdefault(pair, Counter())[word] += 1
+        pair2word.setdefault(pair, Counter())[word] += 1
 
 
 def train_bpe(
@@ -296,7 +298,7 @@ def train_bpe(
                 new_tokens=new_tokens,
                 word_frequency=word_counts[word],
                 pair_counts=pair_counts,
-                pair_to_word=pair_to_word,
+                pair2word=pair_to_word,
             )
 
             word_tokens[word] = new_tokens
@@ -316,6 +318,10 @@ if __name__ == "__main__":
     print(f"词表大小：{len(vocab)}")
     print(f"合并次数：{len(merges)}")
     # print("前 10 条合并规则：")
+    with open("data/TinyStory_vocab.pkl", "wb") as f:
+        pickle.dump(vocab, f)
 
+    with open("data/TinyStory_merges.pkl", "wb") as f:
+        pickle.dump(merges, f)
     for left, right in merges:
         print(left, "+", right, "->", left + right)

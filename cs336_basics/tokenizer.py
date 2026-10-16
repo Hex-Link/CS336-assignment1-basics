@@ -53,11 +53,11 @@ class Tokenizer:
         self.pretoken_pattern = re.compile(GPT2_PRETOKENIZATION_PATTERN)
 
     @classmethod
-    def form_file(
+    def from_files(
         cls,
         vocab_filepath: str | os.PathLike,
         merges_filepath: str | os.PathLike,
-        special_tokens: list[str] | None,
+        special_tokens: list[str] | None = None,
     ) -> Tokenizer:
         with open(vocab_filepath, "rb") as vocab_file:
             # 从二进制文件对象 vocab_file 中读取并反序列化一个 Python 对象
@@ -139,3 +139,11 @@ class Tokenizer:
         # iterable 可以是文件对象等；每次只处理当前文本片段
         for text_piece in iterable:
             yield from self.encode(text_piece)
+
+
+if __name__ == "__main__":
+    tokenizer = Tokenizer.from_files(
+        "data/TinyStory_vocab.pkl",
+        "data/TinyStory_merges.pkl",
+        special_tokens=None,
+    )
