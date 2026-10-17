@@ -1,3 +1,4 @@
+import argparse
 import os
 from typing import BinaryIO
 from collections import Counter
@@ -252,13 +253,12 @@ def update_pair_stats(
         pair2word.setdefault(pair, Counter())[word] += 1
 
 
-def train_bpe(
-    input_path: str | os.PathLike,
+def train_bpe_from_counts(
+    word_counts: Counter[str],
     vocab_size: int,
     special_tokens: list[str],
-    num_process: int = 8,
 ) -> tuple[dict[int, bytes], list[BytePair]]:
-    """训练 byte-level BPE，返回词表和按顺序排列的合并规则。"""
+    """根据已统计的预分词词频训练 byte-level BPE。"""
     #  * 是解包：把每个生成列表中的元素逐个放进外层列表。
     #  也可以把这段理解为“先收集特殊 token 的字节串，再接上 256 个单字节串”
     vocab: list[bytes] = [
@@ -268,10 +268,7 @@ def train_bpe(
     if vocab_size < len(vocab):
         raise ValueError(f"vocab_size={vocab_size}小于初始词表大小{len(vocab)}")
 
-    # 1. 多进程预分词，得到“预分词单元 -> 频次”
-    word_counts = count_pretokens_parallel(input_path, special_tokens, num_process)
-
-    # 2. 将每个预分词拆成初始字节 token，并统计相邻对
+    # 将每个预分词拆成初始字节 token，并统计相邻对。
     word_tokens, pair_counts, pair_to_word = initialize_bpe_state(word_counts, vocab)
 
     merges: list[BytePair] = []
@@ -307,21 +304,73 @@ def train_bpe(
     return vocab_dict, merges
 
 
-if __name__ == "__main__":
-    vocab, merges = train_bpe(
-        input_path="data/TinyStoriesV2-GPT4-train.txt",
-        vocab_size=10000,
-        special_tokens=["<|endoftext|>"],
-        num_process=8,
+def train_bpe(
+    input_path: str | os.PathLike,
+    vocab_size: int,
+    special_tokens: list[str],
+    num_process: int = 8,
+) -> tuple[dict[int, bytes], list[BytePair]]:
+    """先统计预分词词频，再训练 byte-level BPE。"""
+    word_counts = count_pretokens_parallel(input_path, special_tokens, num_process)
+    return train_bpe_from_counts(word_counts, vocab_size, special_tokens)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="训练 CS336 byte-level BPE tokenizer")
+    parser.add_argument(
+        "--stage",
+        choices=("all", "pretokenize", "merge"),
+        default="all",
+        help=(
+            "all: 连续完成两步；pretokenize: 统计并保存词频；"
+            "merge: 读取词频并训练合并规则"
+        ),
     )
+    parser.add_argument("--input-path", default="data/owt_train.txt")
+    parser.add_argument("--word-counts-path", default="data/owt_word_counts.pkl")
+    parser.add_argument("--vocab-size", type=int, default=32000)
+    parser.add_argument("--num-process", type=int, default=8)
+
+    args = parser.parse_args()
+    special_tokens = ["<|endoftext|>"]
+    os.makedirs("data", exist_ok=True)
+
+    if args.stage == "pretokenize":
+        word_counts = count_pretokens_parallel(
+            args.input_path, special_tokens, args.num_process
+        )
+        with open(args.word_counts_path, "wb") as f:
+            pickle.dump(word_counts, f, protocol=pickle.HIGHEST_PROTOCOL)
+        print(
+            f"预分词统计完成：{len(word_counts)} 个不同的预分词，"
+            f"已保存到 {args.word_counts_path}"
+        )
+        return
+
+    if args.stage == "merge":
+        with open(args.word_counts_path, "rb") as f:
+            word_counts = pickle.load(f)
+        vocab, merges = train_bpe_from_counts(
+            word_counts, args.vocab_size, special_tokens
+        )
+    else:
+        vocab, merges = train_bpe(
+            input_path=args.input_path,
+            vocab_size=args.vocab_size,
+            special_tokens=special_tokens,
+            num_process=args.num_process,
+        )
 
     print(f"词表大小：{len(vocab)}")
     print(f"合并次数：{len(merges)}")
-    # print("前 10 条合并规则：")
-    with open("data/TinyStory_vocab.pkl", "wb") as f:
+    with open("data/owt_vocab.pkl", "wb") as f:
         pickle.dump(vocab, f)
 
-    with open("data/TinyStory_merges.pkl", "wb") as f:
+    with open("data/owt_merges.pkl", "wb") as f:
         pickle.dump(merges, f)
     for left, right in merges:
         print(left, "+", right, "->", left + right)
+
+
+if __name__ == "__main__":
+    main()

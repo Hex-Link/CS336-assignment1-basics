@@ -163,3 +163,4 @@ cython_debug/
 *.zip
 data/
 1.py
+.DS_Store
