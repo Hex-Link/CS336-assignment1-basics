@@ -326,9 +326,9 @@ def main() -> None:
             "merge: 读取词频并训练合并规则"
         ),
     )
-    parser.add_argument("--input-path", default="data/owt_train.txt")
+    parser.add_argument("--input-path", default="data/TinyStoriesV2-GPT4-train.txt")
     parser.add_argument("--word-counts-path", default="data/owt_word_counts.pkl")
-    parser.add_argument("--vocab-size", type=int, default=32000)
+    parser.add_argument("--vocab-size", type=int, default=10000)
     parser.add_argument("--num-process", type=int, default=8)
 
     args = parser.parse_args()
@@ -363,10 +363,10 @@ def main() -> None:
 
     print(f"词表大小：{len(vocab)}")
     print(f"合并次数：{len(merges)}")
-    with open("data/owt_vocab.pkl", "wb") as f:
+    with open("data/TinyStoriesV2_vocab.pkl", "wb") as f:
         pickle.dump(vocab, f)
 
-    with open("data/owt_merges.pkl", "wb") as f:
+    with open("data/TinyStoriesV2_merges.pkl", "wb") as f:
         pickle.dump(merges, f)
     for left, right in merges:
         print(left, "+", right, "->", left + right)
