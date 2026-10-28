@@ -6,6 +6,8 @@ import regex as re
 import multiprocessing
 from functools import partial
 import pickle
+from dataclasses import dataclass
+from heapq import heapify, heappop, heappush
 
 GPT2_PRETOKENIZATION_PATTERN = (
     # 撇号后匹配常见英文缩写后缀；(?:...) 是不捕获分组，| 表示“或”，[sdmt] 匹配其中一个字符。
@@ -23,6 +25,16 @@ GPT2_PRETOKENIZATION_PATTERN = (
 )
 
 BytePair = tuple[bytes, bytes]
+
+
+@dataclass(frozen=True, slots=True)
+class PairPriority:
+    count: int
+    pair: BytePair
+
+    def __lt__(self, other: "PairPriority") -> bool:
+        # heapq 是最小堆；这里让频次大、平局时字节序大的项先出堆
+        return (self.count, self.pair) > (other.count, other.pair)
 
 
 def find_chunk_boundaries(
@@ -194,12 +206,29 @@ def initialize_bpe_state(
 
 def find_best_pair(
     pair_counts: Counter[BytePair],
+    pair_heap: list[PairPriority],
+    changed_pairs: set[BytePair],
 ) -> BytePair | None:
     """选择频次最高的 pair；平局时选择字典序更大的 pair。"""
-    if not pair_counts:
-        return None
+    # 一整轮更新结束后，每个涉及的 pair 只按最终频次入堆一次
+    for pair in changed_pairs:
+        count = pair_counts.get(pair, 0)
+        if count > 0:
+            heappush(pair_heap, PairPriority(count, pair))
 
-    return max(pair_counts, key=lambda pair: (pair_counts[pair], pair))
+    # 控制惰性删除留下的过期记录数量
+    if len(pair_heap) > 4 * len(pair_counts) + 1024:
+        pair_heap[:] = [
+            PairPriority(count, pair) for pair, count in pair_counts.items()
+        ]
+        heapify(pair_heap)
+
+    while pair_heap:
+        entry = heappop(pair_heap)
+        if pair_counts.get(entry.pair, 0) == entry.count:
+            return entry.pair
+
+    return None
 
 
 def merge_pair_in_word(
@@ -231,10 +260,12 @@ def update_pair_stats(
     word_frequency: int,
     pair_counts: Counter[BytePair],
     pair2word: dict[BytePair, Counter[str]],
+    changed_pairs: set[BytePair],
 ) -> None:
     """移除该预分词合并前的 pair 统计，再加入合并后的统计。"""
     for left, right in zip(old_tokens, old_tokens[1:]):
         pair = (left, right)
+        changed_pairs.add(pair)
         pair_counts[pair] -= word_frequency
         if pair_counts[pair] <= 0:
             del pair_counts[pair]
@@ -249,6 +280,7 @@ def update_pair_stats(
 
     for left, right in zip(new_tokens, new_tokens[1:]):
         pair = (left, right)
+        changed_pairs.add(pair)
         pair_counts[pair] += word_frequency
         pair2word.setdefault(pair, Counter())[word] += 1
 
@@ -272,9 +304,14 @@ def train_bpe_from_counts(
     word_tokens, pair_counts, pair_to_word = initialize_bpe_state(word_counts, vocab)
 
     merges: list[BytePair] = []
+
+    pair_heap = [PairPriority(count, pair) for pair, count in pair_counts.items()]
+    heapify(pair_heap)
+    changed_pairs: set[BytePair] = set()
     # 3. 重复合并最佳 pair，直到词表达到指定大小或没有 pair 可合并
     while len(vocab) < vocab_size:
-        best_pair = find_best_pair(pair_counts)
+        best_pair = find_best_pair(pair_counts, pair_heap, changed_pairs)
+        changed_pairs.clear()
         if best_pair is None:
             break
 
@@ -296,6 +333,7 @@ def train_bpe_from_counts(
                 word_frequency=word_counts[word],
                 pair_counts=pair_counts,
                 pair2word=pair_to_word,
+                changed_pairs=changed_pairs,
             )
 
             word_tokens[word] = new_tokens
@@ -328,7 +366,7 @@ def main() -> None:
     )
     parser.add_argument("--input-path", default="data/TinyStoriesV2-GPT4-train.txt")
     parser.add_argument("--word-counts-path", default="data/owt_word_counts.pkl")
-    parser.add_argument("--vocab-size", type=int, default=10000)
+    parser.add_argument("--vocab-size", type=int, default=32000)
     parser.add_argument("--num-process", type=int, default=8)
 
     args = parser.parse_args()
@@ -363,10 +401,10 @@ def main() -> None:
 
     print(f"词表大小：{len(vocab)}")
     print(f"合并次数：{len(merges)}")
-    with open("data/TinyStoriesV2_vocab.pkl", "wb") as f:
+    with open("data/owt_vocab.pkl", "wb") as f:
         pickle.dump(vocab, f)
 
-    with open("data/TinyStoriesV2_merges.pkl", "wb") as f:
+    with open("data/owt_merges.pkl", "wb") as f:
         pickle.dump(merges, f)
     for left, right in merges:
         print(left, "+", right, "->", left + right)

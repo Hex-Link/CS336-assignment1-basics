@@ -39,3 +39,15 @@
 作业接口要求类方法名为 `from_files()`，并从序列化的 `vocab`、`merges` 文件构造 tokenizer。当前 `tokenizer.py` 中的方法名是 `form_file()`，且使用 `pickle.load()` 读取文件；使用前应将方法名改为 `from_files()`，并保证序列化端也使用相同的数据格式。现有测试适配器通过 `get_tokenizer()` 直接构造 `Tokenizer(vocab, merges, special_tokens)`，所以这些测试不会覆盖文件加载方法名。
 
 本次提供的 `tests/test_tokenizer.py` 输出中，German、TinyStories、特殊 token 换行以及 iterable 编码相关用例为 `PASSED`。两个内存限制用例为 `SKIPPED`：测试仅在 Linux 上运行这些用例，跳过不代表内存行为已经验证。
+### 用最大堆选择下一次合并
+
+合并循环用最大堆维护候选 pair，避免每轮都扫描整个 `pair_counts` 查找最高频 pair。
+
+- 初始化时把所有 pair 按当前频次加入堆。优先级按 `(频次, pair)` 降序排列，因此频次相同时仍选择字节序较大的 pair，保持原有 tie-break 规则。
+- 每次 merge 后，只把受影响的词中旧序列和新序列涉及的 pair 记入 `changed_pairs`；本轮更新结束后，再按 `pair_counts` 的最新频次将这些 pair 入堆。
+- 使用惰性删除：频次变化时不在堆中搜索并删除旧记录；取堆顶时对照 `pair_counts`，跳过已经过期的记录。
+- 当堆积累的记录明显多于有效 pair 时，从当前 `pair_counts` 重建堆，限制堆空间增长。
+
+因此，候选 pair 的选择从每轮全量扫描改为堆顶读取，更新工作集中在本轮受影响的 pair 上。合并及计数更新仍按原流程执行。
+
+验证：Windows PC 上运行 `uv run pytest tests/test_train_bpe.py`，3 项测试通过。完整 OWT 32k merge 的总耗时尚未作为本次验证结果记录。

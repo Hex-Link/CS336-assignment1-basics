@@ -24,7 +24,7 @@ def decode(
     if not generated_ids:
         raise ValueError("prompt 至少需要编码出一个 token")
 
-    eos_id = tokenizer.token2id(b"<|endoftext|>")
+    eos_id = tokenizer.token2id[b"<|endoftext|>"]
     # next(...)：从迭代器中取出第一个参数
     device = next(model.parameters()).device
     model.eval()
@@ -51,7 +51,7 @@ def decode(
             sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
 
             sampled_position = torch.multinomial(sorted_probs, num_samples=1)
-            next_id = sorted_probs.gather(dim=-1, index=sampled_position).item()
+            next_id = sorted_ids.gather(dim=-1, index=sampled_position).item()
         else:
             next_id = torch.multinomial(probs, num_samples=1).item()
 
@@ -69,7 +69,7 @@ def main() -> None:
         "data/TinyStory_merges.pkl",
         special_tokens=["<|endoftext|>"],
     )
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TransformerLM(
         vocab_size=len(tokenizer.vocab),
         context_length=256,
@@ -78,10 +78,10 @@ def main() -> None:
         num_layers=4,
         d_ff=1344,
         rope_theta=10000.0,
-        device=torch.device("cpu"),
+        device=device,
     )
     checkpoint = torch.load(
-        "checkpoints/latest.pt",
+        "checkpoints/tinystories_full.pt",
         map_location="cpu",
         weights_only=True,
     )
@@ -91,7 +91,7 @@ def main() -> None:
         tokenizer,
         model,
         prompt="Once upon a time",
-        max_new_tokens=100,
+        max_new_tokens=400,
         context_length=256,
         temperature=0.8,
         top_p=0.9,
